@@ -25,23 +25,24 @@ function sqlite_make_db_sqlite() {
 	$table_schemas = wp_get_db_schema();
 	$queries       = explode( ';', $table_schemas );
 	try {
-		$pdo_class = PHP_VERSION_ID >= 80400 ? PDO\SQLite::class : PDO::class; // phpcs:ignore WordPress.DB.RestrictedClasses.mysql__PDO
-		$pdo       = new $pdo_class( 'sqlite:' . FQDB, null, null, array( PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION ) ); // phpcs:ignore WordPress.DB.RestrictedClasses
+		$pdo_class  = PHP_VERSION_ID >= 80400 ? PDO\SQLite::class : PDO::class; // phpcs:ignore WordPress.DB.RestrictedClasses.mysql__PDO
+		$pdo        = new $pdo_class( 'sqlite:' . FQDB, null, null, array( PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION ) ); // phpcs:ignore WordPress.DB.RestrictedClasses
+		$translator = new WP_SQLite_Driver(
+			new WP_SQLite_Connection(
+				array(
+					'pdo'          => $pdo,
+					'journal_mode' => defined( 'SQLITE_JOURNAL_MODE' ) ? SQLITE_JOURNAL_MODE : null,
+				)
+			),
+			$wpdb->dbname
+		);
 	} catch ( PDOException $err ) {
 		$err_data = $err->errorInfo; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 		$message  = 'Database connection error!<br />';
-		$message .= sprintf( 'Error message is: %s', $err_data[2] );
+		$message .= sprintf( 'Error message is: %s', $err_data[2] ?? $err->getMessage() );
 		wp_die( $message, 'Database Error!' );
 	}
 
-	if ( defined( 'WP_SQLITE_AST_DRIVER' ) && WP_SQLITE_AST_DRIVER ) {
-		$translator = new WP_SQLite_Driver(
-			new WP_SQLite_Connection( array( 'pdo' => $pdo ) ),
-			$wpdb->dbname
-		);
-	} else {
-		$translator = new WP_SQLite_Translator( $pdo );
-	}
 	$query = null;
 
 	try {
@@ -52,21 +53,16 @@ function sqlite_make_db_sqlite() {
 				continue;
 			}
 
-			$result = $translator->query( $query );
-			if ( false === $result ) {
-				throw new PDOException( $translator->get_error_message() );
-			}
+			$translator->query( $query );
 		}
 		$translator->commit();
 	} catch ( PDOException $err ) {
-		$err_data = $err->errorInfo; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-		$err_code = $err_data[1];
 		$translator->rollback();
 		$message  = sprintf(
 			'Error occurred while creating tables or indexes...<br />Query was: %s<br />',
 			var_export( $query, true )
 		);
-		$message .= sprintf( 'Error message is: %s', $err_data[2] );
+		$message .= sprintf( 'Error message is: %s', $err->getMessage() );
 		wp_die( $message, 'Database Error!' );
 	}
 
